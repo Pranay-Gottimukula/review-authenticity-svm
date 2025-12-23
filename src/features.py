@@ -1,106 +1,65 @@
 import numpy as np
 import pandas as pd
-import re
-from collections import Counter
-from tfidf import build_tfidf   # ← your existing function
+from tfidf import build_tfidf
+from .stylometry import *
 
+# ---------------- Stylometric Features ---------------- #
 
-# 1. Helper functions for stylometric features
+def remove_punctuation(text):
+    return re.sub(r"[^\w\s]", "", text)
 
-def avg_word_length(text):
-    words = text.split()
-    if not words:
-        return 0
-    return sum(len(w) for w in words) / len(words)
+def remove_numbers(text):
+    return re.sub(r'\d+', '', text)
 
+def remove_extra_spaces(text):
+    return re.sub(r'\s+', ' ', text).strip()
 
-def sentence_count(text):
-    sentences = re.split(r'[.!?]+', text)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    return len(sentences)
+def preprocess_text(text):
+    if pd.isna(text):
+        return ""
+    text = text.lower()
+    text = remove_punctuation(text)
+    text = remove_numbers(text)
+    text = remove_extra_spaces(text)
+    return text
 
-
-def punctuation_ratio(text):
-    punct = sum(1 for ch in text if ch in ".,!?;:")
-    return punct / max(len(text), 1)
-
-
-def uppercase_ratio(text):
-    upper = sum(1 for ch in text if ch.isupper())
-    return upper / max(len(text), 1)
-
-
-def lexical_diversity(text):
-    words = text.split()
-    if not words:
-        return 0
-    return len(set(words)) / len(words)
-
-
-def repeated_word_ratio(text):
-    words = text.split()
-    if not words:
-        return 0
-    counts = Counter(words)
-    repeated = sum(1 for w, c in counts.items() if c > 1)
-    return repeated / len(words)
-
-
-def exclamation_count(text):
-    return text.count("!")
-
-
-# 2. Main feature builder
-
-def build_features(cleaned_csv_path):
+def build_all_features_from_df(df):
     """
-    Loads cleaned dataset and builds:
-    - TF-IDF features (from clean_text)
-    - Stylometric features (from original text)
-
+    Takes already-loaded dataframe:
+        df["text"]
+    Creates:
+        df["clean_text"] → cleaned version
+        Stylometric features from RAW text
+        TF-IDF from cleaned text
     Returns:
-        X_final  -> NumPy array of features
-        y        -> labels (0/1 for deceptive)
-        vocab    -> vocabulary used for TF-IDF
+        X, y, vocab
     """
 
-    # Load cleaned dataset
-    df = pd.read_csv(cleaned_csv_path)
+    # Clean text
+    df["clean_text"] = df["text"].apply(preprocess_text)
 
-    # Extract columns
-    corpus = df["clean_text"].astype(str).tolist()
-    original_texts = df["text"].astype(str).tolist()
+    raw_texts = df["text"].astype(str).tolist()
+    clean_texts = df["clean_text"].astype(str).tolist()
+
     label_map = {"deceptive": 1, "truthful": -1}
-    labels = df["deceptive"].map(label_map).values
+    y = df["deceptive"].map(label_map).values
 
-    # Build TF-IDF matrix
-    tfidf_matrix, vocab = build_tfidf(corpus)
-    tfidf_matrix = np.array(tfidf_matrix)
-
-    # Build stylometric features
-    feature_list = []
-
-    for text in original_texts:
-        feature_list.append([
+    # --- Stylometric features ---
+    style = []
+    for text in raw_texts:
+        style.append([
             avg_word_length(text),
             sentence_count(text),
             punctuation_ratio(text),
             uppercase_ratio(text),
             lexical_diversity(text),
             repeated_word_ratio(text),
-            exclamation_count(text),
+            exclamation_count(text)
         ])
+    style_matrix = np.array(style, dtype=np.float32)
 
-    style_matrix = np.array(feature_list, dtype=np.float32)
+    # --- TF-IDF ---
+    tfidf_matrix, vocab = build_tfidf(clean_texts)
+    tfidf_matrix = np.array(tfidf_matrix, dtype=np.float32)
 
-    # Combine TF-IDF + Stylometric features
-    X_final = np.hstack([tfidf_matrix, style_matrix])
-
-    return X_final, labels, vocab
-
-# Shape of X_final --> (number of reviews, vocab size + 7(stylometric features))
-
-X, y, vocab = build_features("../data/clean/deceptive-opinion-clean.csv")
-
-print(X)
-print(y)
+    return tfidf_matrix, style_matrix, y, vocab
