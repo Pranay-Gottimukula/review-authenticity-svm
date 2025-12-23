@@ -26,7 +26,9 @@ OTT Deceptive Opinion Dataset
 
 ## Final Metrics
 F1        ≈ 0.68 (balanced precision–recall)
+
 Precision ≈ 0.55
+
 Recall    ≈ 0.90
 
 ## Notes
